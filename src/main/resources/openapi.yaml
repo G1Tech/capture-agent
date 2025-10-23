@@ -1,0 +1,244 @@
+openapi: 3.0.3
+info:
+  title: Capture Agent API
+  version: 0.1.0
+  description: |
+    API for managing capture jobs in the capture-agent service. The current milestone
+    covers creation of recording jobs without executing media processing pipelines.
+servers:
+  - url: https://api.capture-agent.local
+paths:
+  /v1/jobs:
+    post:
+      summary: Create a new capture job
+      operationId: createJob
+      description: |
+        Creates a new capture job definition. The job is stored and returned without
+        starting any media capture process.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+            examples:
+              copyJob:
+                summary: Create a capture job in copy mode
+                value:
+                  name: "Camera 12 copy job"
+                  mode: "copy"
+                  source:
+                    type: "rtsp"
+                    uri: "rtsp://camera-12.internal/stream"
+                  output:
+                    location: "/var/lib/capture-agent/camera12"
+                    fileTemplate: "cam12-%Y%m%d-%H%M%S.mp4"
+                    segmentTimeSec: 10
+                  metadata:
+                    cameraId: "cam12"
+                    site: "hq-east"
+      responses:
+        '201':
+          description: Capture job successfully created
+          headers:
+            Location:
+              description: URI of the created job resource
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+              examples:
+                createdJob:
+                  summary: Capture job definition
+                  value:
+                    id: "3a0f27f0-6db9-4c19-8fa0-9e51055c6d6e"
+                    name: "Camera 12 copy job"
+                    mode: "copy"
+                    source:
+                      type: "rtsp"
+                      uri: "rtsp://camera-12.internal/stream"
+                    output:
+                      location: "/var/lib/capture-agent/camera12"
+                      fileTemplate: "cam12-%Y%m%d-%H%M%S.mp4"
+                      segmentTimeSec: 10
+                    metadata:
+                      cameraId: "cam12"
+                      site: "hq-east"
+                    createdAt: "2024-05-10T12:35:41Z"
+        '400':
+          description: Invalid request payload or business rule violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidSegment:
+                  summary: Segment duration too small
+                  value:
+                    timestamp: "2024-05-10T12:00:00Z"
+                    status: 400
+                    error: "Bad Request"
+                    code: "SEGMENT_TIME_TOO_SMALL"
+                    message: "output.segmentTimeSec must be greater than or equal to 5"
+                    errors: []
+        '500':
+          description: Unexpected server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                serverError:
+                  summary: Generic error
+                  value:
+                    timestamp: "2024-05-10T12:00:00Z"
+                    status: 500
+                    error: "Internal Server Error"
+                    code: "INTERNAL_ERROR"
+                    message: "Unexpected error occurred"
+                    errors: []
+components:
+  schemas:
+    CreateJobRequest:
+      type: object
+      required:
+        - name
+        - source
+        - output
+        - mode
+      properties:
+        name:
+          type: string
+          description: Human readable name of the job.
+          minLength: 1
+        mode:
+          type: string
+          description: Capture mode. Supported values are `copy` and `transcode`.
+          example: copy
+        source:
+          $ref: '#/components/schemas/CaptureSourceInput'
+        output:
+          $ref: '#/components/schemas/CaptureOutputInput'
+        metadata:
+          type: object
+          description: Optional application specific key/value metadata.
+          additionalProperties:
+            type: string
+    CaptureSourceInput:
+      type: object
+      required:
+        - type
+        - uri
+      properties:
+        type:
+          type: string
+          description: Source protocol or type descriptor (e.g. `rtsp`).
+        uri:
+          type: string
+          format: uri
+          description: URI pointing to the media source.
+    CaptureOutputInput:
+      type: object
+      required:
+        - location
+        - fileTemplate
+        - segmentTimeSec
+      properties:
+        location:
+          type: string
+          description: Base directory where segments should be written.
+        fileTemplate:
+          type: string
+          description: Filename template for generated segments.
+        segmentTimeSec:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Segment duration in seconds (must be at least 5 seconds).
+    JobResponse:
+      type: object
+      required:
+        - id
+        - name
+        - source
+        - output
+        - mode
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        mode:
+          type: string
+          description: Normalized job mode token.
+        source:
+          $ref: '#/components/schemas/CaptureSource'
+        output:
+          $ref: '#/components/schemas/CaptureOutput'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the job was created on the server.
+    CaptureSource:
+      allOf:
+        - $ref: '#/components/schemas/CaptureSourceInput'
+    CaptureOutput:
+      type: object
+      required:
+        - location
+        - fileTemplate
+        - segmentTimeSec
+      properties:
+        location:
+          type: string
+        fileTemplate:
+          type: string
+        segmentTimeSec:
+          type: integer
+          format: int32
+    ErrorResponse:
+      type: object
+      required:
+        - timestamp
+        - status
+        - error
+        - code
+        - message
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          format: int32
+        error:
+          type: string
+        code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+        errors:
+          type: array
+          description: Field-level validation errors, when applicable.
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+    ErrorDetail:
+      type: object
+      required:
+        - field
+        - message
+      properties:
+        field:
+          type: string
+        message:
+          type: string
